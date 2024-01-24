@@ -16,6 +16,7 @@
 #include "raylib/raylib.h"
 #include "raylib/rcamera.h"
 #include "raylib/raymath.h"
+#include "raylib/rlgl.h"
 #include "objects.h"
 #include "player.h"
 #include "net/net_client.h"
@@ -33,21 +34,7 @@ typedef enum GameScreen { TITLE, GAMEPLAY } GameScreen;
 
 tsoContext TSO;
 unsigned int fbo = 0;
-
-uint32_t GetDepthTextureFromColorTexture( uint32_t colorTexture, int width, int height )
-{
-	int i;
-	for( i = 0; i < numColorDepthPairs; i++ )
-	{
-		if( colorDepthPairs[i*2] == colorTexture )
-			return colorDepthPairs[i*2+1];
-	}
-	colorDepthPairs = realloc( colorDepthPairs, (numColorDepthPairs+1)*2*sizeof(uint32_t) );
-	colorDepthPairs[numColorDepthPairs*2+0] = colorTexture;
-	int ret = colorDepthPairs[numColorDepthPairs*2+1] = CreateDepthTexture( colorTexture, width, height );
-	numColorDepthPairs++;
-	return ret;
-}
+unsigned int active_fbo = 0;
 
 int RenderLayer(tsoContext * ctx, XrTime predictedDisplayTime, XrCompositionLayerProjectionView * projectionLayerViews, int viewCountOutput )
 {
@@ -63,33 +50,38 @@ int RenderLayer(tsoContext * ctx, XrTime predictedDisplayTime, XrCompositionLaye
 		const XrSwapchainImageOpenGLKHR * swapchainImage = &ctx->tsoSwapchainImages[v][swapchainImageIndex];
 
 		uint32_t colorTexture = swapchainImage->image;
-		uint32_t depthTexture = GetDepthTextureFromColorTexture( colorTexture, ctx->tsoSwapchains[0].width, ctx->tsoSwapchains[0].height );
 
-		int render_texture_width = &ctx->tsoViewConfigs[v].recommendedImageRectWidth * 2;
-		int render_texture_height = &ctx->tsoViewConfigs[v].recommendedImageRectHeight;
+        rlFramebufferAttach(fbo, colorTexture, RL_ATTACHMENT_COLOR_CHANNEL0, RL_ATTACHMENT_TEXTURE2D, 0);
 
-		RenderTexture render_texture = (RenderTexture){
-			fbo,
-			(Texture2D){
-				colorTexture,
-				render_texture_width,
-				render_texture_height,
-				1,
-				-1
-			},
-			(Texture2D){
-				depthTexture,
-				render_texture_width,
-				render_texture_height,
-				1,
-				-1
-			}
-		};
+        assert(rlFramebufferComplete(fbo));
 
-		BeginTextureMode(render_texture);
+		int render_texture_width = ctx->tsoViewConfigs[0].recommendedImageRectWidth * 2;
+		int render_texture_height = ctx->tsoViewConfigs[0].recommendedImageRectHeight;
+		
+        // uint32_t * bufferdata = malloc( width*height*4 ); // do i need this?
 
-		rlEnableStereoRender();
+        RenderTexture2D render_texture = (RenderTexture2D){
+            fbo,
+            (Texture2D){
+                colorTexture,
+                render_texture_width,
+                render_texture_height,
+                1,
+                -1
+            },
+            (Texture2D){
+                ULONG_MAX,
+                render_texture_width,
+                render_texture_height,
+                1,
+                -1
+            }
+        };
 
+        BeginTextureMode(render_texture);
+        active_fbo = fbo;
+
+        /*
 		// Show user different colors in right and left eye.
 		memset( bufferdata, v*250, width*height * 4 );
 		glBindTexture( GL_TEXTURE_2D, colorTexture );
@@ -102,11 +94,22 @@ int RenderLayer(tsoContext * ctx, XrTime predictedDisplayTime, XrCompositionLaye
 
 		free( bufferdata );
 
+        */
+
+        EndTextureMode();
+        active_fbo = 0;
+
 		tsoReleaseSwapchain( &TSO, v );
 	}
 
 	return 0;
 }
+
+/*
+void BeginXRDrawing () {
+    fbo = rlLoadFramebuffer(0, 0); // HACK: I don't think this function uses width and height at all
+}
+*/
 
 //------------------------------------------------------------------------------------
 // Program main entry point
@@ -180,6 +183,21 @@ int main(int argc, char *argv[])
     bool connected = false;
     bool client = false;
     bool start = false;
+
+    int r;
+
+    fbo = rlLoadFramebuffer(0, 0);
+
+    int32_t major = 0;
+	int32_t minor = 0;
+	glGetIntegerv(GL_MAJOR_VERSION, &major);
+	glGetIntegerv(GL_MINOR_VERSION, &minor);
+
+    if( ( r = tsoInitialize( &TSO, major, minor, TSO_DO_DEBUG, "TSOpenXR Example", 0 ) ) ) return r;
+
+    TSO.tsoRenderLayer = RenderLayer;
+
+    if ( ( r = tsoDefaultCreateActions( &TSO ) ) ) return r;
     //--------------------------------------------------------------------------------------
 
     // Main game loop
@@ -193,6 +211,21 @@ int main(int argc, char *argv[])
         {
             cameraMode = CAMERA_FREE;
             camera.up = (Vector3){ 0.0f, 1.0f, 0.0f }; // Reset roll
+        }
+        */
+
+        tsoHandleLoop( &TSO );
+
+        if(!TSO.tsoSessionReady) {
+            usleep(100000);
+            continue;
+        }
+        if ( ( r = tsoSyncInput( &TSO ) ) ) {
+            return r;
+        }
+        /* i dont think i need this rn
+        if ( ( r = tsoRenderFrame( &TSO ) ) ) {
+            return r;
         }
         */
 
@@ -411,10 +444,11 @@ int main(int argc, char *argv[])
     // De-Initialization
     //--------------------------------------------------------------------------------------
     Disconnect();
+    rlUnloadFramebuffer(fbo);
     CloseWindow();        // Close window and OpenGL context
     //--------------------------------------------------------------------------------------
 
-    return 0;
+    return tsoTeardown( &TSO );
 }
 
 void UpdateTheBigBean(Vector3 pos, Vector3 tar) {
