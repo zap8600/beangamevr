@@ -1,0 +1,3 @@
+makecapk
+*.apk*
+my-release-key.keystore

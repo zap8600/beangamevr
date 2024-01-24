@@ -12,6 +12,29 @@
 ********************************************************************************************/
 
 #include <stdio.h>
+#include <math.h>
+#include <string.h>
+#include <stdarg.h>
+#include <limits.h>
+
+#include <GLES3/gl3.h>
+#include <GLES3/gl32.h>
+#include <EGL/egl.h>
+#include <android_native_app_glue.h>
+#include <jni.h>
+#include <android/native_activity.h>
+
+#define GLES_VER_TARG "100"
+#define TARGET_OFFSCREEN
+
+struct android_app *gapp;
+EGLDisplay egl_display;
+EGLSurface egl_surface;
+EGLContext egl_context;
+EGLConfig  egl_config;
+
+#define TSOPENXR_IMPLEMENTATION
+#include "tsopenxr.h"
 
 #include "raylib/raylib.h"
 #include "raylib/rcamera.h"
@@ -20,9 +43,6 @@
 #include "objects.h"
 #include "player.h"
 #include "net/net_client.h"
-
-#define TSOPENXR_IMPLEMENTATION
-#include "tsopenxr.h"
 
 // #define MAX_COLUMNS 10
 
@@ -38,78 +58,58 @@ unsigned int active_fbo = 0;
 
 int RenderLayer(tsoContext * ctx, XrTime predictedDisplayTime, XrCompositionLayerProjectionView * projectionLayerViews, int viewCountOutput )
 {
-	// Render view to the appropriate part of the swapchain image.
-	for (uint32_t v = 0; v < viewCountOutput; v++)
-	{
-		XrCompositionLayerProjectionView * layerView = projectionLayerViews + v;
-		uint32_t swapchainImageIndex;
+	EndTextureMode();
+    active_fbo = 0;
 
-		// Each view has a separate swapchain which is acquired, rendered to, and released.
-		tsoAcquireSwapchain( ctx, v, &swapchainImageIndex );
-
-		const XrSwapchainImageOpenGLKHR * swapchainImage = &ctx->tsoSwapchainImages[v][swapchainImageIndex];
-
-		uint32_t colorTexture = swapchainImage->image;
-
-        rlFramebufferAttach(fbo, colorTexture, RL_ATTACHMENT_COLOR_CHANNEL0, RL_ATTACHMENT_TEXTURE2D, 0);
-
-        assert(rlFramebufferComplete(fbo));
-
-		int render_texture_width = ctx->tsoViewConfigs[0].recommendedImageRectWidth * 2;
-		int render_texture_height = ctx->tsoViewConfigs[0].recommendedImageRectHeight;
-		
-        // uint32_t * bufferdata = malloc( width*height*4 ); // do i need this?
-
-        RenderTexture2D render_texture = (RenderTexture2D){
-            fbo,
-            (Texture2D){
-                colorTexture,
-                render_texture_width,
-                render_texture_height,
-                1,
-                -1
-            },
-            (Texture2D){
-                ULONG_MAX,
-                render_texture_width,
-                render_texture_height,
-                1,
-                -1
-            }
-        };
-
-        BeginTextureMode(render_texture);
-        active_fbo = fbo;
-
-        /*
-		// Show user different colors in right and left eye.
-		memset( bufferdata, v*250, width*height * 4 );
-		glBindTexture( GL_TEXTURE_2D, colorTexture );
-
-		glTexSubImage2D( GL_TEXTURE_2D, 0,
-			layerView->subImage.imageRect.offset.x, layerView->subImage.imageRect.offset.y,
-			width, height, 
-			GL_RGBA, GL_UNSIGNED_BYTE, bufferdata );
-		glBindTexture( GL_TEXTURE_2D, 0 );
-
-		free( bufferdata );
-
-        */
-
-        EndTextureMode();
-        active_fbo = 0;
-
-		tsoReleaseSwapchain( &TSO, v );
-	}
+    tsoReleaseSwapchain( &TSO, 0 );
 
 	return 0;
 }
 
-/*
-void BeginXRDrawing () {
-    fbo = rlLoadFramebuffer(0, 0); // HACK: I don't think this function uses width and height at all
+
+void BeginDrawingXR () {
+    //fbo = rlLoadFramebuffer(0, 0); // HACK: I don't think this function uses width and height at all
+	uint32_t swapchainImageIndex;
+
+	// Each view has a separate swapchain which is acquired, rendered to, and released.
+	tsoAcquireSwapchain( &TSO, 0, &swapchainImageIndex );
+
+	const XrSwapchainImageOpenGLKHR * swapchainImage = &TSO.tsoSwapchainImages[0][swapchainImageIndex];
+
+	uint32_t colorTexture = swapchainImage->image;
+
+    rlFramebufferAttach(fbo, colorTexture, RL_ATTACHMENT_COLOR_CHANNEL0, RL_ATTACHMENT_TEXTURE2D, 0);
+
+    assert(rlFramebufferComplete(fbo));
+
+	int render_texture_width = TSO.tsoViewConfigs[0].recommendedImageRectWidth * 2;
+	int render_texture_height = TSO.tsoViewConfigs[0].recommendedImageRectHeight;
+		
+        // uint32_t * bufferdata = malloc( width*height*4 ); // do i need this?
+
+    RenderTexture2D render_texture = (RenderTexture2D){
+        fbo,
+        (Texture2D){
+            colorTexture,
+            render_texture_width,
+            render_texture_height,
+            1,
+            -1
+        },
+        (Texture2D){
+            ULONG_MAX,
+            render_texture_width,
+            render_texture_height,
+            1,
+            -1
+        }
+    };
+
+    BeginTextureMode(render_texture);
+    active_fbo = fbo;
+
+	//tsoReleaseSwapchain( &TSO, v );
 }
-*/
 
 //------------------------------------------------------------------------------------
 // Program main entry point
@@ -186,14 +186,14 @@ int main(int argc, char *argv[])
 
     int r;
 
-    fbo = rlLoadFramebuffer(0, 0);
-
     int32_t major = 0;
 	int32_t minor = 0;
 	glGetIntegerv(GL_MAJOR_VERSION, &major);
 	glGetIntegerv(GL_MINOR_VERSION, &minor);
 
     if( ( r = tsoInitialize( &TSO, major, minor, TSO_DO_DEBUG, "TSOpenXR Example", 0 ) ) ) return r;
+
+    fbo = rlLoadFramebuffer(0, 0);
 
     TSO.tsoRenderLayer = RenderLayer;
 
@@ -357,12 +357,12 @@ int main(int argc, char *argv[])
 
         // Draw
         //----------------------------------------------------------------------------------
-        BeginDrawing();
 
             ClearBackground(RAYWHITE);
 
             switch(currentScreen) {
                 case TITLE: {
+                    BeginDrawing();
                     DrawText("Server IP:", 240, 140, 20, GRAY);
 
                     DrawRectangleRec(textBox, LIGHTGRAY);
@@ -372,10 +372,12 @@ int main(int argc, char *argv[])
                     DrawText(serverIp, (int)textBox.x + 5, (int)textBox.y + 8, 35, MAROON);
 
                     DrawText("Press ENTER to Continue", 315, 250, 20, DARKGRAY);
+                    EndDrawing();
                     break;
                 }
                 case GAMEPLAY:
                 {
+                    BeginDrawingXR();
                     BeginMode3D(bean.camera);
                     
                     DrawPlane((Vector3){ 0.0f, 0.0f, 0.0f }, (Vector2){ 32.0f, 32.0f }, LIGHTGRAY); // Draw ground
@@ -415,8 +417,13 @@ int main(int argc, char *argv[])
                         DrawCapsuleWires(bean.topCap, bean.botCap, 0.7f, 8, 8, BLACK);
                         //DrawBoundingBox(beanCollide, VIOLET);
                     }
-                    
+
                     EndMode3D();
+                    if ( ( r = tsoRenderFrame( &TSO ) ) ) {
+                        return r;
+                    }
+
+                    BeginDrawing();
 
                     // Draw info boxes
                     DrawRectangle(5, 5, 330, 85, RED);
@@ -433,6 +440,7 @@ int main(int argc, char *argv[])
                         DrawText("- Camera mode keys: 1, 2", 15, 60, 10, BLACK);
                         DrawText("- Generate a new color: 3", 15, 75, 10, BLACK);
                     }
+                    EndDrawing();
                     break;
                 }
             }

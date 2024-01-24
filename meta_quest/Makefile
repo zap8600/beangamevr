@@ -28,7 +28,7 @@ ANDROID_FULLSCREEN?=y
 ADB?=adb
 UNAME := $(shell uname)
 
-ANDROIDSRCS:= $(SRC) $(RAWDRAWANDROIDSRCS) libopenxr_loader.so
+ANDROIDSRCS:= $(SRC) $(RAWDRAWANDROIDSRCS) libopenxr_loader.so ../libraylib.5.0.0.so
 
 #if you have a custom Android Home location you can add it to this list.  
 #This makefile will select the first present folder.
@@ -145,6 +145,7 @@ makecapk.apk : $(TARGETS) $(EXTRA_ASSETS_TRIGGER) AndroidManifest.xml
 	mkdir -p makecapk/assets
 	cp -r Sources/assets/* makecapk/assets
 	cp libopenxr_loader.so makecapk/lib/arm64-v8a/
+	cp ../libraylib.5.0.0.so makecapk/lib/arm64-v8a/
 	rm -rf temp.apk
 	$(AAPT) package -f -F temp.apk -I $(ANDROIDSDK)/platforms/android-$(ANDROIDVERSION)/android.jar -M AndroidManifest.xml -S Sources/res -A makecapk/assets -v --target-sdk-version $(ANDROIDTARGET)
 	unzip -o temp.apk -d makecapk
