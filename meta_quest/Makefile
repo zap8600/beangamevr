@@ -7,12 +7,12 @@ all : makecapk.apk
 
 # WARNING WARNING WARNING!  YOU ABSOLUTELY MUST OVERRIDE THE PROJECT NAME
 # you should also override these parameters, get your own signatre file and make your own manifest.
-APPNAME?=beangame
+APPNAME?=beangamevr
 LABEL?=$(APPNAME)
 APKFILE ?= $(APPNAME).apk
 PACKAGENAME?=io.github.zap8600.$(APPNAME)
 RAWDRAWANDROID?=.
-RAWDRAWANDROIDSRCS=$(RAWDRAWANDROID)/android_native_app_glue.c
+RAWDRAWANDROIDSRCS=../libraylib.a
 SRC?=../main.c ../net_client.c ../net_common.c ../player.c
 
 #We've tested it with android version 22, 24, 28, 29 and 30.
@@ -28,7 +28,7 @@ ANDROID_FULLSCREEN?=y
 ADB?=adb
 UNAME := $(shell uname)
 
-ANDROIDSRCS:= $(SRC) $(RAWDRAWANDROIDSRCS) libopenxr_loader.so ../libraylib.5.0.0.so
+ANDROIDSRCS:= $(SRC) $(RAWDRAWANDROIDSRCS) libopenxr_loader.so
 
 #if you have a custom Android Home location you can add it to this list.  
 #This makefile will select the first present folder.
@@ -98,10 +98,10 @@ CFLAGS_ARM64:=-m64
 CFLAGS_ARM32:=-mfloat-abi=softfp -m32
 CFLAGS_x86:=-march=i686 -mtune=intel -mssse3 -mfpmath=sse -m32
 CFLAGS_x86_64:=-march=x86-64 -msse4.2 -mpopcnt -m64 -mtune=intel
-STOREPASS?=password
-DNAME:="CN=example.com, OU=ID, O=Example, L=Doe, S=John, C=GB"
+STOREPASS?=samich
+DNAME:="CN=zap8600.github.io, OU=ID, O=ThePhantomThieves, L=Chickasha, S=Oklahoma, C=US"
 KEYSTOREFILE:=my-release-key.keystore
-ALIASNAME?=standkey
+ALIASNAME?=chimken
 
 keystore : $(KEYSTOREFILE)
 
