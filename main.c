@@ -74,7 +74,7 @@ void BeginDrawingXR () {
 	// Each view has a separate swapchain which is acquired, rendered to, and released.
 	tsoAcquireSwapchain( &TSO, 0, &swapchainImageIndex );
 
-	const XrSwapchainImageOpenGLKHR * swapchainImage = &TSO.tsoSwapchainImages[0][swapchainImageIndex];
+	const XrSwapchainImageOpenGLKHR * swapchainImage = &(&TSO)->tsoSwapchainImages[swapchainImageIndex];
 
 	uint32_t colorTexture = swapchainImage->image;
 
@@ -84,7 +84,6 @@ void BeginDrawingXR () {
 
 	int render_texture_width = TSO.tsoViewConfigs[0].recommendedImageRectWidth * 2;
 	int render_texture_height = TSO.tsoViewConfigs[0].recommendedImageRectHeight;
-		
         // uint32_t * bufferdata = malloc( width*height*4 ); // do i need this?
 
     RenderTexture2D render_texture = (RenderTexture2D){
@@ -126,7 +125,7 @@ int main(int argc, char *argv[])
     const int screenWidth = 800;
     const int screenHeight = 450;
 
-    InitWindow(screenWidth, screenHeight, "Bean Game");
+    InitWindow(screenWidth, screenHeight, "Bean Game VR");
 
     char serverIp[MAX_INPUT_CHARS + 1] = "172.233.208.111\0";
     int letterCount = 15;
@@ -191,7 +190,7 @@ int main(int argc, char *argv[])
 	glGetIntegerv(GL_MAJOR_VERSION, &major);
 	glGetIntegerv(GL_MINOR_VERSION, &minor);
 
-    if( ( r = tsoInitialize( &TSO, major, minor, TSO_DO_DEBUG, "TSOpenXR Example", 0 ) ) ) return r;
+    if( ( r = tsoInitialize( &TSO, major, minor, TSO_DO_DEBUG, "Bean Game VR", 0 ) ) ) return r;
 
     fbo = rlLoadFramebuffer(0, 0);
 
@@ -213,21 +212,22 @@ int main(int argc, char *argv[])
             camera.up = (Vector3){ 0.0f, 1.0f, 0.0f }; // Reset roll
         }
         */
-
+        
         tsoHandleLoop( &TSO );
 
         if(!TSO.tsoSessionReady) {
             usleep(100000);
             continue;
         }
+        
         if ( ( r = tsoSyncInput( &TSO ) ) ) {
             return r;
         }
-        /* i dont think i need this rn
+        
         if ( ( r = tsoRenderFrame( &TSO ) ) ) {
             return r;
         }
-        */
+        
 
         switch(currentScreen) {
             case TITLE:
@@ -419,11 +419,11 @@ int main(int argc, char *argv[])
                     }
 
                     EndMode3D();
-                    if ( ( r = tsoRenderFrame( &TSO ) ) ) {
-                        return r;
-                    }
+                    //if ( ( r = tsoRenderFrame( &TSO ) ) ) {
+                    //    return r;
+                    //}
 
-                    BeginDrawing();
+                    //BeginDrawing();
 
                     // Draw info boxes
                     DrawRectangle(5, 5, 330, 85, RED);
@@ -452,11 +452,12 @@ int main(int argc, char *argv[])
     // De-Initialization
     //--------------------------------------------------------------------------------------
     Disconnect();
-    rlUnloadFramebuffer(fbo);
+    //rlUnloadFramebuffer(fbo);
     CloseWindow();        // Close window and OpenGL context
     //--------------------------------------------------------------------------------------
 
     return tsoTeardown( &TSO );
+    //return 0;
 }
 
 void UpdateTheBigBean(Vector3 pos, Vector3 tar) {
