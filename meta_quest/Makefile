@@ -22,7 +22,7 @@ ANDROIDVERSION=30
 ANDROIDTARGET=30
 #$(ANDROIDVERSION)
 #Default is to be strip down, but your app can override it.
-CFLAGS?=-ffunction-sections -Os -fdata-sections -Wall -fvisibility=hidden -I.. -I../include
+CFLAGS?=-ffunction-sections -Os -fdata-sections -Wall -fvisibility=hidden -I.. -I../include -g
 LDFLAGS?=-Wl,--gc-sections -s
 ANDROID_FULLSCREEN?=y
 ADB?=adb
@@ -145,7 +145,6 @@ makecapk.apk : $(TARGETS) $(EXTRA_ASSETS_TRIGGER) AndroidManifest.xml
 	mkdir -p makecapk/assets
 	cp -r Sources/assets/* makecapk/assets
 	cp libopenxr_loader.so makecapk/lib/arm64-v8a/
-	cp ../libraylib.5.0.0.so makecapk/lib/arm64-v8a/
 	rm -rf temp.apk
 	$(AAPT) package -f -F temp.apk -I $(ANDROIDSDK)/platforms/android-$(ANDROIDVERSION)/android.jar -M AndroidManifest.xml -S Sources/res -A makecapk/assets -v --target-sdk-version $(ANDROIDTARGET)
 	unzip -o temp.apk -d makecapk

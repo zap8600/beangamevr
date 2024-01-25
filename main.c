@@ -23,13 +23,14 @@
 #include <android_native_app_glue.h>
 #include <jni.h>
 #include <android/native_activity.h>
+#include <android_native_app_glue.h>
+#include <android/log.h>
 
 #define GLES_VER_TARG "100"
 #define TARGET_OFFSCREEN
 
 struct android_app *gapp;
 EGLDisplay egl_display;
-EGLSurface egl_surface;
 EGLContext egl_context;
 EGLConfig  egl_config;
 
@@ -66,24 +67,38 @@ int RenderLayer(tsoContext * ctx, XrTime predictedDisplayTime, XrCompositionLaye
 	return 0;
 }
 
-
-void BeginDrawingXR () {
+void BeginDrawingXR (tsoContext * ctx) {
     //fbo = rlLoadFramebuffer(0, 0); // HACK: I don't think this function uses width and height at all
+    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Entered BeginDrawingXR");
 	uint32_t swapchainImageIndex;
 
+    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Acquiring swapchain...");
+    if( !ctx->tsoNumViewConfigs || !ctx->tsoSwapchains ) {
+        __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Swapchains not setup, attempting to initalize swapchains...");
+    }
 	// Each view has a separate swapchain which is acquired, rendered to, and released.
-	tsoAcquireSwapchain( &TSO, 0, &swapchainImageIndex );
+	tsoAcquireSwapchain( ctx, 0, &swapchainImageIndex );
 
-	const XrSwapchainImageOpenGLKHR * swapchainImage = &(&TSO)->tsoSwapchainImages[swapchainImageIndex];
+	const XrSwapchainImageOpenGLKHR * swapchainImage = &ctx->tsoSwapchainImages[swapchainImageIndex];
 
 	uint32_t colorTexture = swapchainImage->image;
 
+    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Attempting to attach framebuffer...");
     rlFramebufferAttach(fbo, colorTexture, RL_ATTACHMENT_COLOR_CHANNEL0, RL_ATTACHMENT_TEXTURE2D, 0);
 
+    /* for some reason, the quest 2 is unable to get the assert function, so ill just have to do it myself
     assert(rlFramebufferComplete(fbo));
+    */
 
-	int render_texture_width = TSO.tsoViewConfigs[0].recommendedImageRectWidth * 2;
-	int render_texture_height = TSO.tsoViewConfigs[0].recommendedImageRectHeight;
+    if(!rlFramebufferComplete(fbo)) {
+        __android_log_print(ANDROID_LOG_ERROR, "beangamevr", "Framebuffer not complete!");
+        return; // idk if android supports things like exit so...
+    }
+
+    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Framebuffer attached successfully!");
+
+	int render_texture_width = ctx->tsoViewConfigs[0].recommendedImageRectWidth * 2;
+	int render_texture_height = ctx->tsoViewConfigs[0].recommendedImageRectHeight;
         // uint32_t * bufferdata = malloc( width*height*4 ); // do i need this?
 
     RenderTexture2D render_texture = (RenderTexture2D){
@@ -104,11 +119,16 @@ void BeginDrawingXR () {
         }
     };
 
+    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Starting texture mode");
     BeginTextureMode(render_texture);
+    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Texture mode started");
     active_fbo = fbo;
 
 	//tsoReleaseSwapchain( &TSO, v );
 }
+
+// defined in rcore_android.c, needed for tsOpenXR
+extern struct android_app *GetAndroidApp(void);
 
 //------------------------------------------------------------------------------------
 // Program main entry point
@@ -126,6 +146,8 @@ int main(int argc, char *argv[])
     const int screenHeight = 450;
 
     InitWindow(screenWidth, screenHeight, "Bean Game VR");
+
+    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Window initialized");
 
     char serverIp[MAX_INPUT_CHARS + 1] = "172.233.208.111\0";
     int letterCount = 15;
@@ -177,7 +199,9 @@ int main(int argc, char *argv[])
 
     //DisableCursor();                    // Limit cursor to relative movement inside the window
 
+    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Setting target FPS...");
     SetTargetFPS(60);                   // Set our game to run at 60 frames-per-second
+    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Target FPS set");
 
     bool connected = false;
     bool client = false;
@@ -190,13 +214,29 @@ int main(int argc, char *argv[])
 	glGetIntegerv(GL_MAJOR_VERSION, &major);
 	glGetIntegerv(GL_MINOR_VERSION, &minor);
 
-    if( ( r = tsoInitialize( &TSO, major, minor, TSO_DO_DEBUG, "Bean Game VR", 0 ) ) ) return r;
+    // Set the stuff for tsopenxr
+    egl_display = eglGetCurrentDisplay();
+    egl_context = eglGetCurrentContext();
+    EGLint numConfigs = 0;
+    eglGetConfigs(egl_display, &egl_config, 1, &numConfigs);
 
+    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Creating framebuffer...");
     fbo = rlLoadFramebuffer(0, 0);
+    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Framebuffer created");
+
+    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Setting gapp...");
+    gapp = GetAndroidApp();
+    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "gapp set");
+
+    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Initializing tsOpenxr");
+    if( ( r = tsoInitialize( &TSO, major, minor, TSO_DO_DEBUG, "Bean Game VR", 0 ) ) ) return r;
+    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "tsOpenxr initialized");
 
     TSO.tsoRenderLayer = RenderLayer;
 
     if ( ( r = tsoDefaultCreateActions( &TSO ) ) ) return r;
+
+    //if ( ( r = tsoCreateSwapchains( &TSO ) ) ) return r;
     //--------------------------------------------------------------------------------------
 
     // Main game loop
@@ -223,11 +263,6 @@ int main(int argc, char *argv[])
         if ( ( r = tsoSyncInput( &TSO ) ) ) {
             return r;
         }
-        
-        if ( ( r = tsoRenderFrame( &TSO ) ) ) {
-            return r;
-        }
-        
 
         switch(currentScreen) {
             case TITLE:
@@ -373,11 +408,10 @@ int main(int argc, char *argv[])
 
                     DrawText("Press ENTER to Continue", 315, 250, 20, DARKGRAY);
                     EndDrawing();
-                    break;
                 }
                 case GAMEPLAY:
                 {
-                    BeginDrawingXR();
+                    BeginDrawingXR(&TSO);
                     BeginMode3D(bean.camera);
                     
                     DrawPlane((Vector3){ 0.0f, 0.0f, 0.0f }, (Vector2){ 32.0f, 32.0f }, LIGHTGRAY); // Draw ground
@@ -419,11 +453,11 @@ int main(int argc, char *argv[])
                     }
 
                     EndMode3D();
-                    //if ( ( r = tsoRenderFrame( &TSO ) ) ) {
-                    //    return r;
-                    //}
+                    if ( ( r = tsoRenderFrame( &TSO ) ) ) {
+                        return r;
+                    }
 
-                    //BeginDrawing();
+                    BeginDrawing();
 
                     // Draw info boxes
                     DrawRectangle(5, 5, 330, 85, RED);
@@ -444,15 +478,13 @@ int main(int argc, char *argv[])
                     break;
                 }
             }
-
-        EndDrawing();
         //----------------------------------------------------------------------------------
     }
 
     // De-Initialization
     //--------------------------------------------------------------------------------------
     Disconnect();
-    //rlUnloadFramebuffer(fbo);
+    rlUnloadFramebuffer(fbo);
     CloseWindow();        // Close window and OpenGL context
     //--------------------------------------------------------------------------------------
 
