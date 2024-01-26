@@ -59,26 +59,12 @@ unsigned int active_fbo = 0;
 
 int RenderLayer(tsoContext * ctx, XrTime predictedDisplayTime, XrCompositionLayerProjectionView * projectionLayerViews, int viewCountOutput )
 {
-    SwapScreenBuffer();
-
-	EndTextureMode();
-    active_fbo = 0;
-
-    tsoReleaseSwapchain( &TSO, 0 );
-
-	return 0;
-}
-
-void BeginDrawingXR (tsoContext * ctx) {
     //fbo = rlLoadFramebuffer(0, 0); // HACK: I don't think this function uses width and height at all
-    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Entered BeginDrawingXR");
+    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Entered RenderLayer");
 	uint32_t swapchainImageIndex;
 
-    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Acquiring swapchain...");
-    if( !ctx->tsoNumViewConfigs || !ctx->tsoSwapchains ) {
-        __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Swapchains not setup, attempting to initalize swapchains...");
-    }
 	// Each view has a separate swapchain which is acquired, rendered to, and released.
+    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Acquiring swapchain...");
 	tsoAcquireSwapchain( ctx, 0, &swapchainImageIndex );
 
 	const XrSwapchainImageOpenGLKHR * swapchainImage = &ctx->tsoSwapchainImages[swapchainImageIndex];
@@ -126,7 +112,15 @@ void BeginDrawingXR (tsoContext * ctx) {
     __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Texture mode started");
     active_fbo = fbo;
 
-	//tsoReleaseSwapchain( &TSO, v );
+    rlDrawRenderBatchActive();
+    SwapScreenBuffer();
+
+	EndTextureMode();
+    active_fbo = 0;
+
+    tsoReleaseSwapchain( &TSO, 0 );
+
+	return 0;
 }
 
 // defined in rcore_android.c, needed for tsOpenXR
@@ -397,9 +391,10 @@ int main(int argc, char *argv[])
 
             ClearBackground(RAYWHITE);
 
+            BeginDrawing();
+
             switch(currentScreen) {
                 case TITLE: {
-                    BeginDrawingXR(&TSO);
                     DrawText("Server IP:", 240, 140, 20, GRAY);
 
                     DrawRectangleRec(textBox, LIGHTGRAY);
@@ -409,14 +404,10 @@ int main(int argc, char *argv[])
                     DrawText(serverIp, (int)textBox.x + 5, (int)textBox.y + 8, 35, MAROON);
 
                     DrawText("Press ENTER to Continue", 315, 250, 20, DARKGRAY);
-                    if ( ( r = tsoRenderFrame( &TSO ) ) ) {
-                        return r;
-                    }
                     break;
                 }
                 case GAMEPLAY:
                 {
-                    BeginDrawingXR(&TSO);
                     BeginMode3D(bean.camera);
                     
                     DrawPlane((Vector3){ 0.0f, 0.0f, 0.0f }, (Vector2){ 32.0f, 32.0f }, LIGHTGRAY); // Draw ground
@@ -458,11 +449,6 @@ int main(int argc, char *argv[])
                     }
 
                     EndMode3D();
-                    if ( ( r = tsoRenderFrame( &TSO ) ) ) {
-                        return r;
-                    }
-
-                    BeginDrawing();
 
                     // Draw info boxes
                     DrawRectangle(5, 5, 330, 85, RED);
@@ -482,6 +468,9 @@ int main(int argc, char *argv[])
                     EndDrawing();
                     break;
                 }
+            }
+            if ( ( r = tsoRenderFrame( &TSO ) ) ) {
+                return r;
             }
         //----------------------------------------------------------------------------------
     }
