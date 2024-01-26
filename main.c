@@ -408,6 +408,7 @@ int main(int argc, char *argv[])
 
                     DrawText("Press ENTER to Continue", 315, 250, 20, DARKGRAY);
                     EndDrawing();
+                    break;
                 }
                 case GAMEPLAY:
                 {
