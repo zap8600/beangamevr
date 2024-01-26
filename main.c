@@ -80,7 +80,7 @@ int RenderLayer(tsoContext * ctx, XrTime predictedDisplayTime, XrCompositionLaye
 
     if(!rlFramebufferComplete(fbo)) {
         __android_log_print(ANDROID_LOG_ERROR, "beangamevr", "Framebuffer not complete!");
-        return; // idk if android supports things like exit so...
+        return 0; // idk if android supports things like exit so...
     }
 
     __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Framebuffer attached successfully!");
