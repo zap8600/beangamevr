@@ -67,7 +67,7 @@ int RenderLayer(tsoContext * ctx, XrTime predictedDisplayTime, XrCompositionLaye
     __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Acquiring swapchain...");
 	tsoAcquireSwapchain( ctx, 0, &swapchainImageIndex );
 
-	const XrSwapchainImageOpenGLKHR * swapchainImage = &ctx->tsoSwapchainImages[swapchainImageIndex];
+	const XrSwapchainImageOpenGLKHR * swapchainImage = ctx->tsoSwapchainImages[swapchainImageIndex];
 
 	uint32_t colorTexture = swapchainImage->image;
 
@@ -80,7 +80,7 @@ int RenderLayer(tsoContext * ctx, XrTime predictedDisplayTime, XrCompositionLaye
 
     if(!rlFramebufferComplete(fbo)) {
         __android_log_print(ANDROID_LOG_ERROR, "beangamevr", "Framebuffer not complete!");
-        return 0; // idk if android supports things like exit so...
+        return 1; // idk if android supports things like exit so...
     }
 
     __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Framebuffer attached successfully!");
@@ -99,7 +99,7 @@ int RenderLayer(tsoContext * ctx, XrTime predictedDisplayTime, XrCompositionLaye
             -1
         },
         (Texture2D){
-            ULONG_MAX,
+            UINT_MAX,
             render_texture_width,
             render_texture_height,
             1,
