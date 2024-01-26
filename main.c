@@ -59,6 +59,8 @@ unsigned int active_fbo = 0;
 
 int RenderLayer(tsoContext * ctx, XrTime predictedDisplayTime, XrCompositionLayerProjectionView * projectionLayerViews, int viewCountOutput )
 {
+    SwapScreenBuffer();
+
 	EndTextureMode();
     active_fbo = 0;
 
@@ -397,7 +399,7 @@ int main(int argc, char *argv[])
 
             switch(currentScreen) {
                 case TITLE: {
-                    BeginDrawing();
+                    BeginDrawingXR(&TSO);
                     DrawText("Server IP:", 240, 140, 20, GRAY);
 
                     DrawRectangleRec(textBox, LIGHTGRAY);
@@ -407,7 +409,9 @@ int main(int argc, char *argv[])
                     DrawText(serverIp, (int)textBox.x + 5, (int)textBox.y + 8, 35, MAROON);
 
                     DrawText("Press ENTER to Continue", 315, 250, 20, DARKGRAY);
-                    EndDrawing();
+                    if ( ( r = tsoRenderFrame( &TSO ) ) ) {
+                        return r;
+                    }
                     break;
                 }
                 case GAMEPLAY:
