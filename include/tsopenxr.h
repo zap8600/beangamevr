@@ -1303,6 +1303,10 @@ int tsoTeardown( tsoContext * ctx )
 	tsoCheck(ctx, result, "xrDestroySpace");
 	ret |= result;
 
+	result = xrDestroySpace(ctx->tsoViewSpace);
+	tsoCheck(ctx, result, "xrDestroySpace");
+	ret |= result;
+
 	result = xrEndSession(ctx->tsoSession);
 	tsoCheck(ctx, result, "xrEndSession");
 	ret |= result;
