@@ -63,6 +63,61 @@ XrFrameState fs;
 const XrCompositionLayerBaseHeader * layers[1];
 int layerCount;
 
+XrSpace view_space;
+
+static Matrix xr_projection_matrix(const XrFovf& fov)
+{
+    /*
+	if(RL_CULL_DISTANCE_FAR > RL_CULL_DISTANCE_NEAR) {
+        __android_log_print(ANDROID_LOG_ERROR, "beangamevr", "Infinite far plane distances are not supported!");
+        return { 0 };
+    }
+    */
+
+	Matrix matrix{};
+
+	const float near = (float)RL_CULL_DISTANCE_NEAR;
+	const float far = (float)RL_CULL_DISTANCE_FAR;
+
+	const float tanAngleLeft = tanf(fov.angleLeft);
+	const float tanAngleRight = tanf(fov.angleRight);
+
+	const float tanAngleDown = tanf(fov.angleDown);
+	const float tanAngleUp = tanf(fov.angleUp);
+
+	const float tanAngleWidth = tanAngleRight - tanAngleLeft;
+	const float tanAngleHeight = tanAngleUp - tanAngleDown;
+
+	matrix.m0 = 2 / tanAngleWidth;
+	matrix.m4 = 0;
+	matrix.m8 = (tanAngleRight + tanAngleLeft) / tanAngleWidth;
+	matrix.m12 = 0;
+
+	matrix.m1 = 0;
+	matrix.m5 = 2 / tanAngleHeight;
+	matrix.m9 = (tanAngleUp + tanAngleDown) / tanAngleHeight;
+	matrix.m13 = 0;
+
+	matrix.m2 = 0;
+	matrix.m6 = 0;
+	matrix.m10 = -(far + near) / (far - near);
+	matrix.m14 = -(far * (near + near)) / (far - near);
+
+	matrix.m3 = 0;
+	matrix.m7 = 0;
+	matrix.m11 = -1;
+	matrix.m15 = 0;
+
+	return matrix;
+}
+
+static Matrix xr_matrix(const XrPosef& pose)
+{
+	Matrix translation = MatrixTranslate(pose.position.x, pose.position.y, pose.position.z);
+	Matrix rotation = QuaternionToMatrix(Quaternion{pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w});
+	return MatrixMultiply(rotation, translation);
+}
+
 int BeginDrawingXR(tsoContext * ctx)
 {
     __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Begin BeginDrawingXR");
@@ -130,6 +185,15 @@ int BeginDrawingXR(tsoContext * ctx)
 	vli.space = tsoStageSpace;
 	result = xrLocateViews( tsoSession, &vli, &viewState, tsoNumViewConfigs, &viewCountOutput, views );
 	if (tsoCheck(ctx, result, "xrLocateViews"))
+	{
+		return result;
+	}
+
+    XrSpaceLocation view_location;
+    view_location.type = XR_TYPE_SPACE_LOCATION;
+    view_location.next = NULL;
+    result = xrLocateSpace(ctx->tsoViewSpace, ctx->tsoStageSpace, ctx->tsoPredictedDisplayTime, &view_location);
+    if (tsoCheck(ctx, result, "xrLocateSpace"))
 	{
 		return result;
 	}
@@ -217,6 +281,18 @@ int BeginDrawingXR(tsoContext * ctx)
 
         BeginTextureMode(render_texture);
 
+        rlEnableStereoRender();
+
+        // doesnt work unless swapped
+        Matrix proj_left = xr_projection_matrix(views[1].fov);
+        Matrix proj_right = xr_projection_matrix(views[0].fov);
+        rlSetMatrixProjectionStereo(proj_right, proj_left);
+
+        const Matrix view_matrix = MatrixInvert(xr_matrix(view_location.pose));
+        const Matrix view_offset_left = MatrixMultiply(xr_matrix(views[0].pose), view_matrix);
+        const Matrix view_offset_right = MatrixMultiply(xr_matrix(views[1].pose), view_matrix);
+        rlSetMatrixViewOffsetStereo(view_offset_right, view_offset_left);
+
         layer.viewCount = viewCountOutput;
 		layer.views = projectionLayerViews;
 		layerCount = 1;
@@ -234,6 +310,8 @@ int EndDrawingXR(tsoContext * ctx) {
 
     EndTextureMode();
     active_fbo = 0;
+
+    rlDisableStereoRender();
 
     tsoReleaseSwapchain( &TSO, 0 );
 

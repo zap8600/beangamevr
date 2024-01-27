@@ -76,6 +76,7 @@ typedef struct tsoContext_t
 	XrSession tsoSession;
 	XrActionSet tsoActionSet;
 	XrSpace tsoStageSpace;	
+	XrSpace tsoViewSpace; // zap8600. adding this here for raylib. besides, tsopenxr hasent been updated in 2 years
 
 	// Actions
 	XrPath handPath[2];
@@ -166,7 +167,7 @@ int tsoEnumerateLayers( tsoContext * ctx );
 int tsoCreateInstance( tsoContext * ctx, const char * appname );
 int tsoGetSystemId( tsoContext * ctx );
 int tsoCreateSession( tsoContext * ctx, uint32_t openglMajor, uint32_t openglMinor );
-int tsoCreateStageSpace( tsoContext * ctx );
+int tsoCreateSpaces( tsoContext * ctx );
 int tsoBeginSession( tsoContext * ctx );
 
 #ifdef TSOPENXR_IMPLEMENTATION
@@ -230,7 +231,7 @@ int tsoInitialize( tsoContext * ctx, int32_t openglMajor, int32_t openglMinor, i
 	if( ( r = tsoGetSystemId( ctx ) ) ) return r;
 	if( ( r = tsoEnumeratetsoViewConfigs( ctx ) ) ) return r;
 	if( ( r = tsoCreateSession( ctx, openglMajor, openglMinor ) ) ) return r;
-	if( ( r = tsoCreateStageSpace( ctx ) ) ) return r;
+	if( ( r = tsoCreateSpaces( ctx ) ) ) return r;
 
 	return 0;
 }
@@ -779,7 +780,7 @@ int tsoDefaultCreateActions( tsoContext * ctx )
 }
 
 
-int tsoCreateStageSpace( tsoContext * ctx )
+int tsoCreateSpaces( tsoContext * ctx )
 {
 	XrSession tsoSession = ctx->tsoSession;
 	XrResult result;
@@ -827,12 +828,23 @@ int tsoCreateStageSpace( tsoContext * ctx )
 #endif
 	XrPosef identityPose = { {0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 0.0f} };
 
-	XrReferenceSpaceCreateInfo rsci;
-	rsci.type = XR_TYPE_REFERENCE_SPACE_CREATE_INFO;
-	rsci.next = NULL;
-	rsci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_STAGE;
-	rsci.poseInReferenceSpace = identityPose;
-	result = xrCreateReferenceSpace(tsoSession, &rsci, &ctx->tsoStageSpace);
+	XrReferenceSpaceCreateInfo rscis;
+	rscis.type = XR_TYPE_REFERENCE_SPACE_CREATE_INFO;
+	rscis.next = NULL;
+	rscis.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_STAGE;
+	rscis.poseInReferenceSpace = identityPose;
+	result = xrCreateReferenceSpace(tsoSession, &rscis, &ctx->tsoStageSpace);
+	if (tsoCheck(ctx, result, "xrCreateReferenceSpace"))
+	{
+		return result;
+	}
+
+	XrReferenceSpaceCreateInfo rsciv; // zap8600 here. rearranged, it spells riscv!
+	rsciv.type = XR_TYPE_REFERENCE_SPACE_CREATE_INFO;
+	rsciv.next = NULL;
+	rsciv.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
+	rsciv.poseInReferenceSpace = identityPose;
+	result = xrCreateReferenceSpace(tsoSession, &rsciv, &ctx->tsoViewSpace);
 	if (tsoCheck(ctx, result, "xrCreateReferenceSpace"))
 	{
 		return result;
