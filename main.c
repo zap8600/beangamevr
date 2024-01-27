@@ -54,71 +54,202 @@ LocalBean bean = { 0 };
 typedef enum GameScreen { TITLE, GAMEPLAY } GameScreen;
 
 tsoContext TSO;
+
+bool fbo_set = false;
 unsigned int fbo = 0;
 unsigned int active_fbo = 0;
 
-int RenderLayer(tsoContext * ctx, XrTime predictedDisplayTime, XrCompositionLayerProjectionView * projectionLayerViews, int viewCountOutput )
+XrFrameState fs;
+const XrCompositionLayerBaseHeader * layers[1];
+int layerCount;
+
+int BeginDrawingXR(tsoContext * ctx)
 {
-    //fbo = rlLoadFramebuffer(0, 0); // HACK: I don't think this function uses width and height at all
-    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Entered RenderLayer");
-	uint32_t swapchainImageIndex;
-
-	// Each view has a separate swapchain which is acquired, rendered to, and released.
-    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Acquiring swapchain...");
-	tsoAcquireSwapchain( ctx, 0, &swapchainImageIndex );
-
-	const XrSwapchainImageOpenGLKHR * swapchainImage = ctx->tsoSwapchainImages[swapchainImageIndex];
-
-	uint32_t colorTexture = swapchainImage->image;
-
-    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Attempting to attach framebuffer...");
-    rlFramebufferAttach(fbo, colorTexture, RL_ATTACHMENT_COLOR_CHANNEL0, RL_ATTACHMENT_TEXTURE2D, 0);
-
-    /* for some reason, the quest 2 is unable to get the assert function, so ill just have to do it myself
-    assert(rlFramebufferComplete(fbo));
-    */
-
-    if(!rlFramebufferComplete(fbo)) {
-        __android_log_print(ANDROID_LOG_ERROR, "beangamevr", "Framebuffer not complete!");
-        return 1; // idk if android supports things like exit so...
+    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Begin BeginDrawingXR");
+    if(!fbo_set) {
+        fbo = rlLoadFramebuffer(0, 0);
     }
 
-    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Framebuffer attached successfully!");
+    XrSession tsoSession = ctx->tsoSession;
+	int tsoNumViewConfigs = ctx->tsoNumViewConfigs;
+	XrSpace tsoStageSpace = ctx->tsoStageSpace;
 
-	int render_texture_width = ctx->tsoViewConfigs[0].recommendedImageRectWidth * 2;
-	int render_texture_height = ctx->tsoViewConfigs[0].recommendedImageRectHeight;
-        // uint32_t * bufferdata = malloc( width*height*4 ); // do i need this?
+	fs.type = XR_TYPE_FRAME_STATE;
+	fs.next = NULL;
 
-    RenderTexture2D render_texture = (RenderTexture2D){
-        fbo,
-        (Texture2D){
-            colorTexture,
-            render_texture_width,
-            render_texture_height,
-            1,
-            -1
-        },
-        (Texture2D){
-            UINT_MAX,
-            render_texture_width,
-            render_texture_height,
-            1,
-            -1
+	XrFrameWaitInfo fwi;
+	fwi.type = XR_TYPE_FRAME_WAIT_INFO;
+	fwi.next = NULL;
+
+	XrResult result = xrWaitFrame(tsoSession, &fwi, &fs);
+	if (tsoCheck(ctx, result, "xrWaitFrame"))
+	{
+		return result;
+	}
+
+	XrFrameBeginInfo fbi;
+	fbi.type = XR_TYPE_FRAME_BEGIN_INFO;
+	fbi.next = NULL;
+	result = xrBeginFrame(tsoSession, &fbi);
+	if (tsoCheck(ctx, result, "xrBeginFrame"))
+	{
+		return result;
+	}
+
+	// Potentially resize.
+	tsoEnumeratetsoViewConfigs( ctx );
+	
+	// Originally written this way to allow for  || ctx->tsoViewConfigs[0].recommendedImageRectWidth != ctx->tsoSwapchains[0].width  ... But this doesn't work in any current runtimes.
+	if( !ctx->tsoNumViewConfigs || !ctx->tsoSwapchains )
+	{
+		if ( ( result = tsoCreateSwapchains( ctx ) ) ) return result;
+	}		
+
+	layerCount = 0;
+	XrCompositionLayerProjection layer = { XR_TYPE_COMPOSITION_LAYER_PROJECTION };
+	layer.layerFlags = 0; //XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+	layer.next = NULL;
+	layer.space = tsoStageSpace;
+
+	layers[0] = (XrCompositionLayerBaseHeader *)&layer;
+
+	XrView * views = alloca( sizeof( XrView) * tsoNumViewConfigs );
+	for (size_t i = 0; i < tsoNumViewConfigs; i++)
+	{
+		views[i].type = XR_TYPE_VIEW;
+		views[i].next = NULL;
+	}
+	
+	uint32_t viewCountOutput;
+	XrViewState viewState = { XR_TYPE_VIEW_STATE };
+
+	XrViewLocateInfo vli;
+	vli.type = XR_TYPE_VIEW_LOCATE_INFO;
+	vli.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+	ctx->tsoPredictedDisplayTime = vli.displayTime = fs.predictedDisplayTime;
+	vli.space = tsoStageSpace;
+	result = xrLocateViews( tsoSession, &vli, &viewState, tsoNumViewConfigs, &viewCountOutput, views );
+	if (tsoCheck(ctx, result, "xrLocateViews"))
+	{
+		return result;
+	}
+
+	XrCompositionLayerProjectionView *projectionLayerViews = alloca( viewCountOutput * sizeof( XrCompositionLayerProjectionView ) );
+	memset( projectionLayerViews, 0, sizeof( XrCompositionLayerProjectionView ) * viewCountOutput );
+
+	int i;
+	int viewCounts = (ctx->flags & TSO_DOUBLEWIDE)?1:viewCountOutput;
+	for( i = 0; i < viewCountOutput; i++ )
+	{
+		// Each view has a separate swapchain which is acquired, rendered to, and released.
+		XrCompositionLayerProjectionView * layerView = projectionLayerViews + i;
+		layerView->type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
+		layerView->pose = views[i].pose;
+		layerView->fov = views[i].fov;
+		
+		if( ctx->flags & TSO_DOUBLEWIDE )
+		{
+			const tsoSwapchainInfo * viewSwapchain = ctx->tsoSwapchains;
+			int individualWidth = viewSwapchain->width / viewCountOutput;
+			layerView->subImage.swapchain = viewSwapchain->handle;
+			layerView->subImage.imageRect.offset.x = i*individualWidth;
+			layerView->subImage.imageRect.offset.y = 0;
+			layerView->subImage.imageRect.extent.width = individualWidth;
+			layerView->subImage.imageRect.extent.height = viewSwapchain->height;
+			layerView->subImage.imageArrayIndex = 0;
+		}
+		else
+		{
+			const tsoSwapchainInfo * viewSwapchain = ctx->tsoSwapchains + i;
+			layerView->subImage.swapchain = viewSwapchain->handle;
+			layerView->subImage.imageRect.offset.x = 0;
+			layerView->subImage.imageRect.offset.y = 0;
+			layerView->subImage.imageRect.extent.width = viewSwapchain->width;
+			layerView->subImage.imageRect.extent.height = viewSwapchain->height;
+			layerView->subImage.imageArrayIndex = 0;
+		}
+	}
+
+    if(!fbo_set) {
+        uint32_t swapchain_width = 0;
+        for( i = 0; i < viewCountOutput; i++ ) {
+            swapchain_width += ctx->tsoViewConfigs[i].recommendedImageRectWidth;
         }
-    };
+        fbo = rlLoadFramebuffer(swapchain_width, ctx->tsoViewConfigs[0].recommendedImageRectHeight);
+        fbo_set = true;
+    }
+		
+	// We only support up to 1 layer.
+	if (fs.shouldRender == XR_TRUE && XR_UNQUALIFIED_SUCCESS(result))
+	{
+		uint32_t swapchainImageIndex;
 
-    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Starting texture mode");
-    BeginTextureMode(render_texture);
-    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Texture mode started");
-    active_fbo = fbo;
+        tsoAcquireSwapchain( ctx, 0, &swapchainImageIndex );
 
-    rlDrawRenderBatchActive();
-    SwapScreenBuffer();
+        const XrSwapchainImageOpenGLKHR * swapchainImage = &ctx->tsoSwapchainImages[0][swapchainImageIndex];
 
-	EndTextureMode();
+        uint32_t colorTexture = swapchainImage->image;
+
+        int render_texture_width = ctx->tsoViewConfigs[0].recommendedImageRectWidth * 2;
+        int render_texture_height = ctx->tsoViewConfigs[0].recommendedImageRectHeight;
+
+        rlFramebufferAttach(fbo, colorTexture, RL_ATTACHMENT_COLOR_CHANNEL0, RL_ATTACHMENT_TEXTURE2D, 0);
+
+        if(!rlFramebufferComplete(fbo)) return 1;
+
+        RenderTexture2D render_texture = (RenderTexture2D){
+            fbo,
+            (Texture2D){
+                colorTexture,
+                render_texture_width,
+                render_texture_height,
+                1,
+                -1
+            },
+            (Texture2D){
+                UINT_MAX,
+                render_texture_width,
+                render_texture_height,
+                1,
+                -1
+            }
+        };
+
+        BeginTextureMode(render_texture);
+
+        layer.viewCount = viewCountOutput;
+		layer.views = projectionLayerViews;
+		layerCount = 1;
+	}
+
+    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "End BeginDrawingXR");
+
+	return 0;
+}
+
+int EndDrawingXR(tsoContext * ctx) {
+    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Begin EndDrawingXR");
+
+    XrSession tsoSession = ctx->tsoSession;
+
+    EndTextureMode();
     active_fbo = 0;
 
     tsoReleaseSwapchain( &TSO, 0 );
+
+    XrFrameEndInfo fei = { XR_TYPE_FRAME_END_INFO };
+	fei.displayTime = fs.predictedDisplayTime;
+	fei.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+	fei.layerCount = layerCount;
+	fei.layers = layers;
+
+	XrResult result = xrEndFrame(tsoSession, &fei);
+	if (tsoCheck(ctx, result, "xrEndFrame"))
+	{
+		return result;
+	}
+
+    __android_log_print(ANDROID_LOG_INFO, "beangamevr", "End EndDrawingXR");
 
 	return 0;
 }
@@ -217,7 +348,7 @@ int main(int argc, char *argv[])
     eglGetConfigs(egl_display, &egl_config, 1, &numConfigs);
 
     __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Creating framebuffer...");
-    fbo = rlLoadFramebuffer(0, 0);
+    
     __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Framebuffer created");
 
     __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Setting gapp...");
@@ -227,8 +358,6 @@ int main(int argc, char *argv[])
     __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Initializing tsOpenxr");
     if( ( r = tsoInitialize( &TSO, major, minor, TSO_DO_DEBUG, "Bean Game VR", 0 ) ) ) return r;
     __android_log_print(ANDROID_LOG_INFO, "beangamevr", "tsOpenxr initialized");
-
-    TSO.tsoRenderLayer = RenderLayer;
 
     if ( ( r = tsoDefaultCreateActions( &TSO ) ) ) return r;
 
@@ -391,7 +520,7 @@ int main(int argc, char *argv[])
 
             ClearBackground(RAYWHITE);
 
-            BeginDrawing();
+            BeginDrawingXR(&TSO);
 
             switch(currentScreen) {
                 case TITLE: {
@@ -465,13 +594,10 @@ int main(int argc, char *argv[])
                         DrawText("- Camera mode keys: 1, 2", 15, 60, 10, BLACK);
                         DrawText("- Generate a new color: 3", 15, 75, 10, BLACK);
                     }
-                    EndDrawing();
                     break;
                 }
             }
-            if ( ( r = tsoRenderFrame( &TSO ) ) ) {
-                return r;
-            }
+            EndDrawingXR(&TSO);
         //----------------------------------------------------------------------------------
     }
 
