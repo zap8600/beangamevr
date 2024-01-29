@@ -67,6 +67,177 @@ XrSpace view_space;
 
 XrCompositionLayerProjectionView *projectionLayerViews;
 
+typedef struct
+{
+	XrSwapchain handle;
+	int32_t width;
+	int32_t height;
+} depthSwapchainInfo;
+
+depthSwapchainInfo * depthSwapchains;
+XrSwapchainImageOpenGLKHR ** depthSwapchainImages;
+int numDepthSwapchainsPerFrame;
+uint32_t * depthSwapchainLengths;
+XrCompositionLayerDepthInfoKHR * depthViewConfigs;
+
+int depthReleaseSwapchain( tsoContext * ctx, int swapchainNumber )
+{
+	const depthSwapchainInfo * viewSwapchain = depthSwapchains + swapchainNumber;
+
+	XrResult result;
+	XrSwapchainImageReleaseInfo ri = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+	result = xrReleaseSwapchainImage( viewSwapchain->handle, &ri );
+	if (tsoCheck(ctx, result, "xrReleaseSwapchainImage"))
+	{
+		return result;
+	}
+	return 0;
+}
+
+int depthAcquireSwapchain( tsoContext * ctx, int swapchainNumber, uint32_t * swapchainImageIndex )
+{
+	const depthSwapchainInfo * viewSwapchain = depthSwapchains + swapchainNumber;
+
+	XrSwapchainImageAcquireInfo ai = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+	XrResult result = xrAcquireSwapchainImage(viewSwapchain->handle, &ai, swapchainImageIndex);
+	if (tsoCheck(ctx, result, "xrAquireSwapchainImage"))
+	{
+		return result;
+	}
+
+	XrSwapchainImageWaitInfo wi = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+	wi.timeout = XR_INFINITE_DURATION;
+	result = xrWaitSwapchainImage(viewSwapchain->handle, &wi);
+	if (tsoCheck(ctx, result, "xrWaitSwapchainImage"))
+	{
+		return result;
+	}
+	
+	return 0;
+}
+
+int depthCreateSwapchains(tsoContext * ctx) {
+    XrSession tsoSession = ctx->tsoSession;
+	XrViewConfigurationView * tsoViewConfigs = ctx->tsoViewConfigs;
+	int tsoNumViewConfigs = ctx->tsoNumViewConfigs;
+	depthSwapchainInfo ** tsoSwapchains = &depthSwapchains; // Will allocate to tsoNumViewConfigs
+	XrSwapchainImageOpenGLKHR *** tsoSwapchainImages = &depthSwapchainImages;
+	uint32_t ** tsoSwapchainLengths = &depthSwapchainLengths; // Actually array of pointers to pointers
+					  
+	int i;
+	XrResult result;
+	uint32_t swapchainFormatCount;
+	result = xrEnumerateSwapchainFormats(tsoSession, 0, &swapchainFormatCount, NULL);
+	if (tsoCheck(ctx, result, "xrEnumerateSwapchainFormats"))
+	{
+		return result;
+	}
+
+	int64_t * swapchainFormats = alloca(swapchainFormatCount * sizeof( int64_t ));
+	result = xrEnumerateSwapchainFormats(tsoSession, swapchainFormatCount, &swapchainFormatCount, swapchainFormats);
+	if (tsoCheck(ctx, result, "xrEnumerateSwapchainFormats"))
+	{
+		return result;
+	}
+	
+	int selfmt = 0;
+	int isdefault = 1;
+
+	for( i = 0; i < swapchainFormatCount; i++ )
+	{
+		// Prefer SRGB8_ALPHA8
+		if( swapchainFormats[i] == GL_DEPTH_COMPONENT16 )
+		{
+			isdefault = 0;
+			selfmt = i;
+		}
+	}
+	
+#if TSOPENXR_ENABLE_DEBUG
+	if( ctx->tsoPrintAll )
+	{
+		TSOPENXR_INFO( "Formats:" );
+		for( i = 0; i < swapchainFormatCount; i++ )
+		{
+			TSOPENXR_INFO( "%c%04x%c", ( i == selfmt )?'*':' ', (int)swapchainFormats[i], (i == swapchainFormatCount-1)?'\n':',' );
+		} 
+	}
+#endif
+
+	if( *tsoSwapchains )
+	{
+		tsoDestroySwapchains( ctx );
+	}
+
+	// For now we just pick the default one.
+	int64_t swapchainFormatToUse = swapchainFormats[selfmt];
+
+	int numSwapchainsPerFrame = ctx->numSwapchainsPerFrame = (ctx->flags & TSO_DOUBLEWIDE)?1:tsoNumViewConfigs;
+
+	uint32_t swapchain_width = 0;
+	for (uint32_t i = 0; i < tsoNumViewConfigs; i++) {
+		swapchain_width += ctx->tsoViewConfigs[i].recommendedImageRectWidth;
+	}
+
+	*tsoSwapchains = realloc( *tsoSwapchains, numSwapchainsPerFrame * sizeof( depthSwapchainInfo ) );
+	*tsoSwapchainLengths = realloc( *tsoSwapchainLengths, numSwapchainsPerFrame * sizeof( uint32_t ) );
+	for (uint32_t i = 0; i < numSwapchainsPerFrame; i++)
+	{
+		XrSwapchainCreateInfo sci = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
+		sci.createFlags = 0;
+		sci.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+		sci.format = swapchainFormatToUse;
+		sci.sampleCount = tsoViewConfigs[i].recommendedSwapchainSampleCount;
+		sci.width = swapchain_width;
+		sci.height = tsoViewConfigs[i].recommendedImageRectHeight;
+		sci.faceCount = 1;
+		sci.arraySize = 1;
+		sci.mipCount = 1;
+
+		XrSwapchain swapchainHandle;
+		result = xrCreateSwapchain(tsoSession, &sci, &swapchainHandle);
+		if (tsoCheck(ctx, result, "xrCreateSwapchain"))
+		{
+			return result;
+		}
+
+		(*tsoSwapchains)[i].handle = swapchainHandle;
+		(*tsoSwapchains)[i].width = sci.width;
+		(*tsoSwapchains)[i].height = sci.height;
+
+		result = xrEnumerateSwapchainImages((*tsoSwapchains)[i].handle, 0, &(*tsoSwapchainLengths)[i], NULL);
+		if (tsoCheck(ctx, result, "xrEnumerateSwapchainImages [view]"))
+		{
+			return result;
+		}
+	}
+
+	*tsoSwapchainImages = realloc( *tsoSwapchainImages, numSwapchainsPerFrame * sizeof( XrSwapchainImageOpenGLKHR * ) ); 
+	for (uint32_t i = 0; i < numSwapchainsPerFrame; i++)
+	{
+		(*tsoSwapchainImages)[i] = malloc( (*tsoSwapchainLengths)[i] * sizeof(XrSwapchainImageOpenGLKHR) );
+		for (uint32_t j = 0; j < (*tsoSwapchainLengths)[i]; j++)
+		{
+#ifdef ANDROID
+			(*tsoSwapchainImages)[i][j].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+#else
+			(*tsoSwapchainImages)[i][j].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR;
+#endif
+			(*tsoSwapchainImages)[i][j].next = NULL;
+		}
+
+		result = xrEnumerateSwapchainImages((*tsoSwapchains)[i].handle, (*tsoSwapchainLengths)[i], &(*tsoSwapchainLengths)[i],
+											(XrSwapchainImageBaseHeader*)((*tsoSwapchainImages)[i]));
+
+		if (tsoCheck(ctx, result, "xrEnumerateSwapchainImages [final]"))
+		{
+			return result;
+		}
+	}
+	
+	return 0;
+}
+
 static Matrix xr_projection_matrix(const XrFovf fov)
 {
     /*
@@ -162,6 +333,11 @@ int BeginDrawingXR(tsoContext * ctx)
 		if ( ( result = tsoCreateSwapchains( ctx ) ) ) return result;
     }
 
+    if( !ctx->tsoNumViewConfigs || !depthSwapchains )
+	{
+		if ( ( result = depthCreateSwapchains( ctx ) ) ) return result;
+    }
+
     layerCount = 0;
 
 	XrView * views = alloca( sizeof( XrView) * tsoNumViewConfigs );
@@ -227,6 +403,38 @@ int BeginDrawingXR(tsoContext * ctx)
 		}
 	}
 
+    for( i = 0; i < viewCountOutput; i++ )
+	{
+		// Each view has a separate swapchain which is acquired, rendered to, and released.
+		XrCompositionLayerDepthInfoKHR * layerView = projectionLayerViews + i;
+		layerView->type = XR_TYPE_COMPOSITION_LAYER_DEPTH_INFO_KHR;
+        layerView->minDepth = 0.f;
+        layerView->maxDepth = 1.f;
+        layerView->nearZ = (float)RL_CULL_DISTANCE_NEAR;
+        layerView->farZ = (float)RL_CULL_DISTANCE_FAR;
+		layerView->pose = views[i].pose;
+		layerView->fov = views[i].fov;
+		
+		if( ctx->flags & TSO_DOUBLEWIDE )
+		{
+			layerView->subImage.swapchain = depthSwapchains->handle;
+			layerView->subImage.imageRect.offset.x = i * ctx->tsoViewConfigs[i].recommendedImageRectWidth;
+			layerView->subImage.imageRect.offset.y = 0;
+			layerView->subImage.imageRect.extent.width = ctx->tsoViewConfigs[i].recommendedImageRectWidth;
+			layerView->subImage.imageRect.extent.height = ctx->tsoViewConfigs[i].recommendedImageRectHeight;
+			layerView->subImage.imageArrayIndex = 0;
+		}
+		else
+		{
+			layerView->subImage.swapchain = depthSwapchains->handle;
+			layerView->subImage.imageRect.offset.x = 0;
+			layerView->subImage.imageRect.offset.y = 0;
+			layerView->subImage.imageRect.extent.width = ctx->tsoViewConfigs[i].recommendedImageRectWidth;
+			layerView->subImage.imageRect.extent.height = ctx->tsoViewConfigs[i].recommendedImageRectHeight;
+			layerView->subImage.imageArrayIndex = 0;
+		}
+	}
+
     layer = (XrCompositionLayerProjection){
         .type = XR_TYPE_COMPOSITION_LAYER_PROJECTION,
         .layerFlags = 0,
@@ -247,17 +455,22 @@ int BeginDrawingXR(tsoContext * ctx)
 	if (fs.shouldRender == XR_TRUE && XR_UNQUALIFIED_SUCCESS(result))
 	{
 		uint32_t swapchainImageIndex;
+        uint32_t depthSwapchainImageIndex;
 
         tsoAcquireSwapchain( ctx, 0, &swapchainImageIndex );
+        depthAcquireSwapchain( ctx, 0, &depthSwapchainImageIndex );
 
         const XrSwapchainImageOpenGLKHR * swapchainImage = &ctx->tsoSwapchainImages[0][swapchainImageIndex];
+        const XrSwapchainImageOpenGLKHR * depthSwapchainImage = &depthSwapchainImages[0][depthSwapchainImageIndex]
 
         uint32_t colorTexture = swapchainImage->image;
+        uint32_t depthTexture = swapchainImage->image;
 
         int render_texture_width = ctx->tsoViewConfigs[0].recommendedImageRectWidth * 2;
         int render_texture_height = ctx->tsoViewConfigs[0].recommendedImageRectHeight;
 
         rlFramebufferAttach(fbo, colorTexture, RL_ATTACHMENT_COLOR_CHANNEL0, RL_ATTACHMENT_TEXTURE2D, 0);
+        rlFramebufferAttach(fbo, depthTexture, RL_ATTACHMENT_DEPTH, RL_ATTACHMENT_TEXTURE2D, 0);
 
         if(!rlFramebufferComplete(fbo)) return 1;
 
