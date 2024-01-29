@@ -60,12 +60,14 @@ unsigned int fbo = 0;
 unsigned int active_fbo = 0;
 
 XrFrameState fs;
-const XrCompositionLayerBaseHeader * layers[1];
+XrCompositionLayerProjection layer;
 int layerCount;
 
 XrSpace view_space;
 
-static Matrix xr_projection_matrix(const XrFovf& fov)
+XrCompositionLayerProjectionView *projectionLayerViews;
+
+static Matrix xr_projection_matrix(const XrFovf fov)
 {
     /*
 	if(RL_CULL_DISTANCE_FAR > RL_CULL_DISTANCE_NEAR) {
@@ -74,7 +76,7 @@ static Matrix xr_projection_matrix(const XrFovf& fov)
     }
     */
 
-	Matrix matrix{};
+	Matrix matrix = { 0 };
 
 	const float near = (float)RL_CULL_DISTANCE_NEAR;
 	const float far = (float)RL_CULL_DISTANCE_FAR;
@@ -111,10 +113,10 @@ static Matrix xr_projection_matrix(const XrFovf& fov)
 	return matrix;
 }
 
-static Matrix xr_matrix(const XrPosef& pose)
+static Matrix xr_matrix(const XrPosef pose)
 {
 	Matrix translation = MatrixTranslate(pose.position.x, pose.position.y, pose.position.z);
-	Matrix rotation = QuaternionToMatrix(Quaternion{pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w});
+	Matrix rotation = QuaternionToMatrix((Quaternion){pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w});
 	return MatrixMultiply(rotation, translation);
 }
 
@@ -158,15 +160,9 @@ int BeginDrawingXR(tsoContext * ctx)
 	if( !ctx->tsoNumViewConfigs || !ctx->tsoSwapchains )
 	{
 		if ( ( result = tsoCreateSwapchains( ctx ) ) ) return result;
-	}		
+    }
 
-	layerCount = 0;
-	XrCompositionLayerProjection layer = { XR_TYPE_COMPOSITION_LAYER_PROJECTION };
-	layer.layerFlags = 0; //XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
-	layer.next = NULL;
-	layer.space = tsoStageSpace;
-
-	layers[0] = (XrCompositionLayerBaseHeader *)&layer;
+    layerCount = 0;
 
 	XrView * views = alloca( sizeof( XrView) * tsoNumViewConfigs );
 	for (size_t i = 0; i < tsoNumViewConfigs; i++)
@@ -198,7 +194,7 @@ int BeginDrawingXR(tsoContext * ctx)
 		return result;
 	}
 
-	XrCompositionLayerProjectionView *projectionLayerViews = alloca( viewCountOutput * sizeof( XrCompositionLayerProjectionView ) );
+	projectionLayerViews = malloc( viewCountOutput * sizeof( XrCompositionLayerProjectionView ) );
 	memset( projectionLayerViews, 0, sizeof( XrCompositionLayerProjectionView ) * viewCountOutput );
 
 	int i;
@@ -213,26 +209,30 @@ int BeginDrawingXR(tsoContext * ctx)
 		
 		if( ctx->flags & TSO_DOUBLEWIDE )
 		{
-			const tsoSwapchainInfo * viewSwapchain = ctx->tsoSwapchains;
-			int individualWidth = viewSwapchain->width / viewCountOutput;
-			layerView->subImage.swapchain = viewSwapchain->handle;
-			layerView->subImage.imageRect.offset.x = i*individualWidth;
+			layerView->subImage.swapchain = ctx->tsoSwapchains->handle;
+			layerView->subImage.imageRect.offset.x = i * ctx->tsoViewConfigs[i].recommendedImageRectWidth;
 			layerView->subImage.imageRect.offset.y = 0;
-			layerView->subImage.imageRect.extent.width = individualWidth;
-			layerView->subImage.imageRect.extent.height = viewSwapchain->height;
+			layerView->subImage.imageRect.extent.width = ctx->tsoViewConfigs[i].recommendedImageRectWidth;
+			layerView->subImage.imageRect.extent.height = ctx->tsoViewConfigs[i].recommendedImageRectHeight;
 			layerView->subImage.imageArrayIndex = 0;
 		}
 		else
 		{
-			const tsoSwapchainInfo * viewSwapchain = ctx->tsoSwapchains + i;
-			layerView->subImage.swapchain = viewSwapchain->handle;
+			layerView->subImage.swapchain = ctx->tsoSwapchains->handle;
 			layerView->subImage.imageRect.offset.x = 0;
 			layerView->subImage.imageRect.offset.y = 0;
-			layerView->subImage.imageRect.extent.width = viewSwapchain->width;
-			layerView->subImage.imageRect.extent.height = viewSwapchain->height;
+			layerView->subImage.imageRect.extent.width = ctx->tsoViewConfigs[i].recommendedImageRectWidth;
+			layerView->subImage.imageRect.extent.height = ctx->tsoViewConfigs[i].recommendedImageRectHeight;
 			layerView->subImage.imageArrayIndex = 0;
 		}
 	}
+
+    layer = (XrCompositionLayerProjection){
+        .type = XR_TYPE_COMPOSITION_LAYER_PROJECTION,
+        .layerFlags = 0,
+        .next = NULL,
+        .space = tsoStageSpace,
+    };
 
     if(!fbo_set) {
         uint32_t swapchain_width = 0;
@@ -307,6 +307,7 @@ int EndDrawingXR(tsoContext * ctx) {
     __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Begin EndDrawingXR");
 
     XrSession tsoSession = ctx->tsoSession;
+    const XrCompositionLayerBaseHeader * layers[1] = { (XrCompositionLayerBaseHeader *)&layer };
 
     EndTextureMode();
     active_fbo = 0;
@@ -326,6 +327,8 @@ int EndDrawingXR(tsoContext * ctx) {
 	{
 		return result;
 	}
+
+    free(projectionLayerViews);
 
     __android_log_print(ANDROID_LOG_INFO, "beangamevr", "End EndDrawingXR");
 
@@ -434,7 +437,7 @@ int main(int argc, char *argv[])
     __android_log_print(ANDROID_LOG_INFO, "beangamevr", "gapp set");
 
     __android_log_print(ANDROID_LOG_INFO, "beangamevr", "Initializing tsOpenxr");
-    if( ( r = tsoInitialize( &TSO, major, minor, TSO_DO_DEBUG, "Bean Game VR", 0 ) ) ) return r;
+    if( ( r = tsoInitialize( &TSO, major, minor, TSO_DO_DEBUG | TSO_DOUBLEWIDE, "Bean Game VR", 0 ) ) ) return r;
     __android_log_print(ANDROID_LOG_INFO, "beangamevr", "tsOpenxr initialized");
 
     if ( ( r = tsoDefaultCreateActions( &TSO ) ) ) return r;

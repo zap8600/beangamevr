@@ -919,6 +919,11 @@ int tsoCreateSwapchains( tsoContext * ctx )
 
 	int numSwapchainsPerFrame = ctx->numSwapchainsPerFrame = (ctx->flags & TSO_DOUBLEWIDE)?1:tsoNumViewConfigs;
 
+	uint32_t swapchain_width = 0;
+	for (uint32_t i = 0; i < tsoNumViewConfigs; i++) {
+		swapchain_width += ctx->tsoViewConfigs[i].recommendedImageRectWidth;
+	}
+
 	*tsoSwapchains = realloc( *tsoSwapchains, numSwapchainsPerFrame * sizeof( tsoSwapchainInfo ) );
 	*tsoSwapchainLengths = realloc( *tsoSwapchainLengths, numSwapchainsPerFrame * sizeof( uint32_t ) );
 	for (uint32_t i = 0; i < numSwapchainsPerFrame; i++)
@@ -927,8 +932,8 @@ int tsoCreateSwapchains( tsoContext * ctx )
 		sci.createFlags = 0;
 		sci.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
 		sci.format = swapchainFormatToUse;
-		sci.sampleCount = 1;
-		sci.width = tsoViewConfigs[i].recommendedImageRectWidth * ((ctx->flags & TSO_DOUBLEWIDE)?tsoNumViewConfigs:1);
+		sci.sampleCount = tsoViewConfigs[i].recommendedSwapchainSampleCount;
+		sci.width = swapchain_width;
 		sci.height = tsoViewConfigs[i].recommendedImageRectHeight;
 		sci.faceCount = 1;
 		sci.arraySize = 1;
