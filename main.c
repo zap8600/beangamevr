@@ -657,9 +657,14 @@ int main(int argc, char *argv[])
 
     if ( ( r = tsoDefaultCreateActions( &TSO ) ) ) return r;
 
-    rlDisableBackfaceCulling();
-
     //if ( ( r = tsoCreateSwapchains( &TSO ) ) ) return r;
+
+    Camera camera = { 0 };
+    camera.position = (Vector3){10.0f, 10.0f, 10.0f}; // Camera position
+    camera.target = (Vector3){0.0f, 3.0f, 0.0f};      // Camera looking at point
+    camera.up = (Vector3){0.0f, 1.0f, 0.0f};          // Camera up vector (rotation towards target)
+    camera.fovy = 45.0f;                       // Camera field-of-view Y
+    camera.projection = CAMERA_PERSPECTIVE;    // Camera mode type
     //--------------------------------------------------------------------------------------
 
     // Main game loop
@@ -690,6 +695,7 @@ int main(int argc, char *argv[])
         switch(currentScreen) {
             case TITLE:
             {
+                /*
                 if (CheckCollisionPointRec(GetMousePosition(), textBox)) mouseOnText = true;
                 else mouseOnText = false;
 
@@ -722,6 +728,7 @@ int main(int argc, char *argv[])
                 }
                 
                 break;
+                */
             }
             case GAMEPLAY:
             {
@@ -821,6 +828,7 @@ int main(int argc, char *argv[])
 
             switch(currentScreen) {
                 case TITLE: {
+                    /*
                     DrawText("Server IP:", 240, 140, 20, GRAY);
 
                     DrawRectangleRec(textBox, LIGHTGRAY);
@@ -830,6 +838,10 @@ int main(int argc, char *argv[])
                     DrawText(serverIp, (int)textBox.x + 5, (int)textBox.y + 8, 35, MAROON);
 
                     DrawText("Press ENTER to Continue", 315, 250, 20, DARKGRAY);
+                    */
+                    BeginMode3D(camera);
+                    DrawCube((Vector3) { -3, 0, 0 }, 2.0f, 2.0f, 2.0f, RED);
+                    EndMode3D();
                     break;
                 }
                 case GAMEPLAY:
