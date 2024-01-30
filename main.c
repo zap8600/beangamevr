@@ -528,7 +528,7 @@ int EndDrawingXR(tsoContext * ctx) {
     rlDisableStereoRender();
 
     tsoReleaseSwapchain( &TSO, 0 );
-    depthReleaseSwapchain( &TSO 0 );
+    depthReleaseSwapchain( &TSO, 0 );
 
     XrFrameEndInfo fei = { XR_TYPE_FRAME_END_INFO };
 	fei.displayTime = fs.predictedDisplayTime;
