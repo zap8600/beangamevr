@@ -464,7 +464,7 @@ int BeginDrawingXR(tsoContext * ctx)
         const XrSwapchainImageOpenGLKHR * depthSwapchainImage = &depthSwapchainImages[0][depthSwapchainImageIndex];
 
         uint32_t colorTexture = swapchainImage->image;
-        uint32_t depthTexture = swapchainImage->image;
+        uint32_t depthTexture = depthSwapchainImage->image;
 
         int render_texture_width = ctx->tsoViewConfigs[0].recommendedImageRectWidth * 2;
         int render_texture_height = ctx->tsoViewConfigs[0].recommendedImageRectHeight;
