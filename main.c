@@ -78,7 +78,7 @@ depthSwapchainInfo * depthSwapchains;
 XrSwapchainImageOpenGLKHR ** depthSwapchainImages;
 int numDepthSwapchainsPerFrame;
 uint32_t * depthSwapchainLengths;
-XrCompositionLayerDepthInfoKHR * depthViewConfigs;
+XrCompositionLayerDepthInfoKHR * depthView;
 
 int depthReleaseSwapchain( tsoContext * ctx, int swapchainNumber )
 {
@@ -403,36 +403,36 @@ int BeginDrawingXR(tsoContext * ctx)
 		}
 	}
 
+    depthView = malloc( viewCountOutput * sizeof( XrCompositionLayerDepthInfoKHR ) );
+    memset( depthView, 0, sizeof( XrCompositionLayerDepthInfoKHR ) * viewCountOutput );
     for( i = 0; i < viewCountOutput; i++ )
 	{
-		// Each view has a separate swapchain which is acquired, rendered to, and released.
-		XrCompositionLayerDepthInfoKHR * layerView = projectionLayerViews + i;
-		layerView->type = XR_TYPE_COMPOSITION_LAYER_DEPTH_INFO_KHR;
-        layerView->minDepth = 0.f;
-        layerView->maxDepth = 1.f;
-        layerView->nearZ = (float)RL_CULL_DISTANCE_NEAR;
-        layerView->farZ = (float)RL_CULL_DISTANCE_FAR;
-		layerView->pose = views[i].pose;
-		layerView->fov = views[i].fov;
+		depthView[i].type = XR_TYPE_COMPOSITION_LAYER_DEPTH_INFO_KHR;
+        depthView[i].minDepth = 0.f;
+        depthView[i].maxDepth = 1.f;
+        depthView[i].nearZ = (float)RL_CULL_DISTANCE_NEAR;
+        depthView[i].farZ = (float)RL_CULL_DISTANCE_FAR;
 		
 		if( ctx->flags & TSO_DOUBLEWIDE )
 		{
-			layerView->subImage.swapchain = depthSwapchains->handle;
-			layerView->subImage.imageRect.offset.x = i * ctx->tsoViewConfigs[i].recommendedImageRectWidth;
-			layerView->subImage.imageRect.offset.y = 0;
-			layerView->subImage.imageRect.extent.width = ctx->tsoViewConfigs[i].recommendedImageRectWidth;
-			layerView->subImage.imageRect.extent.height = ctx->tsoViewConfigs[i].recommendedImageRectHeight;
-			layerView->subImage.imageArrayIndex = 0;
+			depthView[i].subImage.swapchain = depthSwapchains->handle;
+			depthView[i].subImage.imageRect.offset.x = i * ctx->tsoViewConfigs[i].recommendedImageRectWidth;
+			depthView[i].subImage.imageRect.offset.y = 0;
+			depthView[i].subImage.imageRect.extent.width = ctx->tsoViewConfigs[i].recommendedImageRectWidth;
+			depthView[i].subImage.imageRect.extent.height = ctx->tsoViewConfigs[i].recommendedImageRectHeight;
+			depthView[i].subImage.imageArrayIndex = 0;
 		}
 		else
 		{
-			layerView->subImage.swapchain = depthSwapchains->handle;
-			layerView->subImage.imageRect.offset.x = 0;
-			layerView->subImage.imageRect.offset.y = 0;
-			layerView->subImage.imageRect.extent.width = ctx->tsoViewConfigs[i].recommendedImageRectWidth;
-			layerView->subImage.imageRect.extent.height = ctx->tsoViewConfigs[i].recommendedImageRectHeight;
-			layerView->subImage.imageArrayIndex = 0;
+			depthView[i].subImage.swapchain = depthSwapchains->handle;
+			depthView[i].subImage.imageRect.offset.x = 0;
+			depthView[i].subImage.imageRect.offset.y = 0;
+			depthView[i].subImage.imageRect.extent.width = ctx->tsoViewConfigs[i].recommendedImageRectWidth;
+			depthView[i].subImage.imageRect.extent.height = ctx->tsoViewConfigs[i].recommendedImageRectHeight;
+			depthView[i].subImage.imageArrayIndex = 0;
 		}
+
+        projectionLayerViews[i].next = &depthView[i];
 	}
 
     layer = (XrCompositionLayerProjection){
@@ -461,7 +461,7 @@ int BeginDrawingXR(tsoContext * ctx)
         depthAcquireSwapchain( ctx, 0, &depthSwapchainImageIndex );
 
         const XrSwapchainImageOpenGLKHR * swapchainImage = &ctx->tsoSwapchainImages[0][swapchainImageIndex];
-        const XrSwapchainImageOpenGLKHR * depthSwapchainImage = &depthSwapchainImages[0][depthSwapchainImageIndex]
+        const XrSwapchainImageOpenGLKHR * depthSwapchainImage = &depthSwapchainImages[0][depthSwapchainImageIndex];
 
         uint32_t colorTexture = swapchainImage->image;
         uint32_t depthTexture = swapchainImage->image;
@@ -484,7 +484,7 @@ int BeginDrawingXR(tsoContext * ctx)
                 -1
             },
             (Texture2D){
-                UINT_MAX,
+                depthTexture,
                 render_texture_width,
                 render_texture_height,
                 1,
@@ -528,6 +528,7 @@ int EndDrawingXR(tsoContext * ctx) {
     rlDisableStereoRender();
 
     tsoReleaseSwapchain( &TSO, 0 );
+    depthReleaseSwapchain( &TSO 0 );
 
     XrFrameEndInfo fei = { XR_TYPE_FRAME_END_INFO };
 	fei.displayTime = fs.predictedDisplayTime;
@@ -542,6 +543,7 @@ int EndDrawingXR(tsoContext * ctx) {
 	}
 
     free(projectionLayerViews);
+    free(depthView);
 
     __android_log_print(ANDROID_LOG_INFO, "beangamevr", "End EndDrawingXR");
 
