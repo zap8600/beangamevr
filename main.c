@@ -497,8 +497,8 @@ int BeginDrawingXR(tsoContext * ctx)
         rlEnableStereoRender();
 
         // doesnt work unless swapped
-        Matrix proj_left = xr_projection_matrix(views[1].fov);
-        Matrix proj_right = xr_projection_matrix(views[0].fov);
+        Matrix proj_left = xr_projection_matrix(views[0].fov);
+        Matrix proj_right = xr_projection_matrix(views[1].fov);
         rlSetMatrixProjectionStereo(proj_right, proj_left);
 
         const Matrix view_matrix = MatrixInvert(xr_matrix(view_location.pose));
@@ -815,7 +815,7 @@ int main(int argc, char *argv[])
         //----------------------------------------------------------------------------------
             BeginDrawingXR(&TSO);
 
-            ClearBackground(RAYWHITE);
+            ClearBackground(BLUE); // for your eyes, DO NOT SET TO RAYWHITE
 
             switch(currentScreen) {
                 case TITLE: {
