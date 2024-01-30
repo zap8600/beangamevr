@@ -813,10 +813,9 @@ int main(int argc, char *argv[])
 
         // Draw
         //----------------------------------------------------------------------------------
+            BeginDrawingXR(&TSO);
 
             ClearBackground(RAYWHITE);
-
-            BeginDrawingXR(&TSO);
 
             switch(currentScreen) {
                 case TITLE: {
