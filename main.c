@@ -509,7 +509,7 @@ int BeginDrawingXR(tsoContext * ctx)
         layer.viewCount = viewCountOutput;
 		layer.views = projectionLayerViews;
 		layerCount = 1;
-	}
+    }
 
     __android_log_print(ANDROID_LOG_INFO, "beangamevr", "End BeginDrawingXR");
 
@@ -656,6 +656,8 @@ int main(int argc, char *argv[])
     __android_log_print(ANDROID_LOG_INFO, "beangamevr", "tsOpenxr initialized");
 
     if ( ( r = tsoDefaultCreateActions( &TSO ) ) ) return r;
+
+    rlDisableBackfaceCulling();
 
     //if ( ( r = tsoCreateSwapchains( &TSO ) ) ) return r;
     //--------------------------------------------------------------------------------------
